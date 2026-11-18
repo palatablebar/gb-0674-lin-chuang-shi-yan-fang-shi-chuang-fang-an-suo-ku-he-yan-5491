@@ -2,7 +2,7 @@ from app.coerce import instant
 from collections import defaultdict
 
 def adjudicate(rows,context):
-    by_id={r['id']:r for r in rows};children=defaultdict(list);issues=[];selected=[]
+    by_id={r['id']:r for r in rows};children=defaultdict(list);issues=[];selected=[];superseded=[]
     for row in rows:
         if row['kind']!='RETEST':continue
         parent=by_id.get(row['parent'])
@@ -14,15 +14,18 @@ def adjudicate(rows,context):
         children[parent['id']].append(row)
     for row in rows:
         if row['kind']!='PRIMARY':continue
-        candidates=children[row['id']]
+        candidates=children[row['id']];held=[];held_code=''
         if candidates:
             max_revision=max(r['revision'] for r in candidates);winners=[r for r in candidates if r['revision']==max_revision]
-            if len(winners)>1:issues.append({'id':row['id'],'code':'RETEST_VERSION_CONFLICT','parent':row['id']});winner=row
-            else:winner=winners[0]
+            if len(winners)>1:
+                issues.append({'id':row['id'],'code':'RETEST_VERSION_CONFLICT','parent':row['id'],'candidates':','.join(sorted(r['id'] for r in winners))});winner=row;held=candidates;held_code='RETEST_CONFLICT_HELD'
+            else:winner=winners[0];held=[r for r in candidates if r is not winner];held_code='RETEST_SUPERSEDED'
         else:winner=row
+        for loser in sorted(held,key=lambda r:(-r['revision'],r['at'],r['id'])):
+            superseded.append({'id':loser['id'],'subject':row['subject'],'visit':row['visit'],'primary_id':row['id'],'value_mg_dl':loser['value_mg_dl'],'revision':loser['revision'],'at':loser['at'],'code':held_code})
         selected.append({'id':winner['id'],'subject':row['subject'],'visit':row['visit'],'primary_id':row['id'],'value_mg_dl':winner['value_mg_dl'],'revision':winner['revision'],'code':'RETEST_SELECTED' if winner is not row else 'PRIMARY_SELECTED'})
-    return selected,issues
+    return selected,issues,superseded
 
 def apply(state):
-    selected,issues=adjudicate(state['records'],state['context']);state.update(selected_results=selected,retest_issues=issues)
-    state['views']['retest']={'title':'复检裁决','rows':selected+issues,'metrics':{'有效结果':len(selected),'采用复检':sum(r['code']=='RETEST_SELECTED' for r in selected),'复检问题':len(issues)}}
+    selected,issues,superseded=adjudicate(state['records'],state['context']);state.update(selected_results=selected,retest_issues=issues,retest_superseded=superseded)
+    state['views']['retest']={'title':'复检裁决','rows':selected+issues,'superseded':superseded,'metrics':{'有效结果':len(selected),'采用复检':sum(r['code']=='RETEST_SELECTED' for r in selected),'未采用候选':len(superseded),'复检问题':len(issues)}}

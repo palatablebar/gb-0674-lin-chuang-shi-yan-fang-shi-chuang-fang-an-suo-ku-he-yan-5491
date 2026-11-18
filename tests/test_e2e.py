@@ -51,3 +51,24 @@ def test_custom_csv_snapshot_and_navigation(tmp_path,monkeypatch):
     assert repeated.status_code==200
     assert repeated.json()['manifest']['run_id']==rid
     assert repeated.json()['manifest']['sha256']==result['manifest']['sha256']
+
+def test_conflict_scenario_pages_and_rerun(tmp_path,monkeypatch,conflict_csv):
+    import io,json,zipfile
+    c=client(tmp_path,monkeypatch)
+    run=c.post('/api/runs',json={'csv_text':conflict_csv}).json()
+    rid=run['manifest']['run_id']
+    final=next(r for r in run['selected_results'] if r['primary_id']=='00001-V1')
+    assert final['id']=='00001-R8' and final['value_mg_dl']=='125'
+    assert run['balance']['status']=='可锁库' and run['archive']['status']=='可冻结'
+    html=c.get('/retest?run_id='+rid).text
+    assert '未采用候选' in html and '00001-R9' in html and 'RETEST_SUPERSEDED' in html
+    assert '锁库依据' in c.get('/locking?run_id='+rid).text
+    archive_html=c.get('/archive?run_id='+rid).text
+    assert '冻结凭证' in archive_html and run['archive']['seal'] in archive_html
+    again=c.post('/api/runs/'+rid+'/rerun',json={}).json()
+    assert again['manifest']['run_id']==rid and again['archive']['seal']==run['archive']['seal']
+    assert next(r for r in again['selected_results'] if r['primary_id']=='00001-V1')['id']=='00001-R8'
+    z=zipfile.ZipFile(io.BytesIO(c.get('/api/export/'+rid).content))
+    evidence=json.loads(z.read('evidence.json'))
+    assert any(r['id']=='00001-R9' for r in evidence['superseded'])
+    assert json.loads(z.read('manifest.json'))['seal']==run['archive']['seal']

@@ -62,6 +62,9 @@
     "deviations": "偏离",
     "retest_issues": "复检问题",
     "blocked": "阻断项",
-    "status": "状态"
+    "status": "状态",
+    "item": "依据项",
+    "value": "内容",
+    "candidates": "候选记录"
   }
 }
